@@ -1,10 +1,15 @@
 package com.ars.gpslogger
 
 import android.Manifest
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.widget.Button
+import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -20,26 +25,64 @@ class MainActivity : AppCompatActivity() {
         arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
     }
 
+    private var isRunning = false
+
+    private lateinit var toggleBtn: Button
+    private lateinit var statusText: TextView
+    private lateinit var saveStatus: TextView
+
+    private lateinit var logReceiver: BroadcastReceiver
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        if (hasPermissions()) {
-            startGpsService()
-            finish()
-        } else {
+        setContentView(R.layout.activity_main)
+
+        toggleBtn = findViewById(R.id.toggleButton)
+        statusText = findViewById(R.id.statusText)
+        saveStatus = findViewById(R.id.saveStatus)
+
+        // Listen for "log saved" broadcasts
+        setupBroadcastReceiver()
+
+        // Toggle button
+        toggleBtn.setOnClickListener {
+            if (isRunning) {
+                stopGpsService()
+            } else {
+                startGpsService()
+            }
+        }
+
+        // Ask for permissions
+        if (!hasPermissions()) {
             ActivityCompat.requestPermissions(this, PERMISSIONS, 1)
         }
     }
+
+    private fun setupBroadcastReceiver() {
+        logReceiver = object : BroadcastReceiver() {
+            override fun onReceive(context: Context?, intent: Intent?) {
+                val timestamp = intent?.getLongExtra("timestamp", 0L) ?: 0L
+                saveStatus.text = "Last saved: ${java.util.Date(timestamp)}"
+            }
+        }
+        registerReceiver(logReceiver, IntentFilter("GPS_LOG_SAVED"))
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        unregisterReceiver(logReceiver)
+    }
+
+    private fun hasPermissions(): Boolean =
+        PERMISSIONS.all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
 
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        startGpsService()
-        finish()
-    }
-
-    private fun hasPermissions(): Boolean = PERMISSIONS.all {
-        ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
     }
 
     private fun startGpsService() {
@@ -49,5 +92,18 @@ class MainActivity : AppCompatActivity() {
         } else {
             startService(intent)
         }
+
+        isRunning = true
+        statusText.text = "GPS Logger is ON"
+        toggleBtn.text = "Stop Logging"
+    }
+
+    private fun stopGpsService() {
+        val intent = Intent(this, GpsLoggerService::class.java)
+        stopService(intent)
+
+        isRunning = false
+        statusText.text = "GPS Logger is OFF"
+        toggleBtn.text = "Start Logging"
     }
 }
