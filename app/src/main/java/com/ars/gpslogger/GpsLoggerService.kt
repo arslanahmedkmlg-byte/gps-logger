@@ -22,13 +22,13 @@ class GpsLoggerService : Service() {
 
     companion object {
         const val TAG = "GpsLogger"
-        const val MQTT_HOST      = "tcp://141.148.192.123:1883"
+        const val MQTT_HOST      = "tcp://144.24.113.211:1883"
         const val MQTT_USER      = "ars"
         const val MQTT_PASS      = "@r\$"
         const val MQTT_TOPIC     = "gps/phone1"
         const val DEVICE_ID      = "phone1"
-        const val GPS_INTERVAL_MS    = 5 * 60 * 60 * 1000L
-        const val UPLOAD_INTERVAL_MS = 6 * 60 * 60 * 1000L
+        const val GPS_INTERVAL_MS    = 5 * 60 * 1000L   // 5 minutes
+        const val UPLOAD_INTERVAL_MS = 6 * 60 * 1000L   // 6 minutes
         const val CHANNEL_ID     = "gps_service"
         const val NOTIF_ID       = 1
     }
