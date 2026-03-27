@@ -4,6 +4,7 @@ plugins {
 }
 
 android {
+    namespace "com.ars.gpslogger"
     compileSdk 34
     defaultConfig {
         applicationId "com.ars.gpslogger"
@@ -22,11 +23,9 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
-    kotlinOptions { jvmTarget = '1.8' }
-}
-
-repositories {
-    maven { url "https://repo.eclipse.org/content/repositories/paho-releases/" }
+    kotlinOptions {
+        jvmTarget = '1.8'
+    }
 }
 
 dependencies {
