@@ -87,9 +87,18 @@ jobs:
       - name: Build Release APK
         run: ./gradlew assembleRelease
 
-      - name: Sign APK manually
+      - name: Generate Keystore and Sign APK
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > keystore.jks
+          keytool -genkey -v \
+            -keystore keystore.jks \
+            -alias gps \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storetype PKCS12 \
+            -storepass 'Ars@123' \
+            -keypass 'Ars@123' \
+            -dname "CN=ARS,OU=Dev,O=ARS,L=City,ST=Punjab,C=PK"
 
           BUILD_TOOLS=$ANDROID_SDK_ROOT/build-tools/34.0.0
 
@@ -99,9 +108,9 @@ jobs:
 
           $BUILD_TOOLS/apksigner sign \
             --ks keystore.jks \
-            --ks-key-alias "${{ secrets.KEY_ALIAS }}" \
-            --ks-pass "pass:${{ secrets.KEYSTORE_PASSWORD }}" \
-            --key-pass "pass:${{ secrets.KEY_PASSWORD }}" \
+            --ks-key-alias gps \
+            --ks-pass pass:Ars@123 \
+            --key-pass pass:Ars@123 \
             --out app/build/outputs/apk/release/gps-logger-signed.apk \
             app/build/outputs/apk/release/app-release-aligned.apk
 
