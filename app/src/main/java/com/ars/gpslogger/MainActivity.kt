@@ -71,7 +71,11 @@ class MainActivity : AppCompatActivity() {
                 saveStatus.text = "Last saved: ${java.util.Date(timestamp)}"
             }
         }
-        registerReceiver(logReceiver, IntentFilter("GPS_LOG_SAVED"))
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(logReceiver, IntentFilter("GPS_LOG_SAVED"), RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(logReceiver, IntentFilter("GPS_LOG_SAVED"))
+        }
     }
 
     override fun onDestroy() {
@@ -91,12 +95,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startGpsService() {
-        val intent = Intent(this, GpsLoggerService::class.java)
+        // Start service
+        val startIntent = Intent(this, GpsLoggerService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
+            startForegroundService(startIntent)
         } else {
-            startService(intent)
+            startService(startIntent)
         }
+
+        // Trigger immediate log
+        val logIntent = Intent(this, GpsLoggerService::class.java)
+        logIntent.action = GpsLoggerService.ACTION_LOG_NOW
+        startService(logIntent)
+
         isRunning = true
         statusText.text = "GPS Logger is ON"
         toggleBtn.text = "Stop Logging"
