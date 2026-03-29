@@ -30,23 +30,31 @@ class GpsLoggerService : Service() {
         const val MQTT_TOPIC = "gps/phone1"
         const val CHANNEL_ID = "gps_service"
         const val NOTIF_ID   = 1
+        const val ACTION_LOG_NOW = "com.ars.gpslogger.LOG_NOW"
+        const val INTERVAL_MS = 6 * 60 * 60 * 1000L  // 6 hours
     }
 
     private lateinit var db: GpsDatabase
     private lateinit var deviceId: String
     private lateinit var locationManager: LocationManager
+    private lateinit var handler: Handler
+    private var lastLocation: Location? = null
 
+    // Periodic log every 6 hours
+    private val periodicRunnable = object : Runnable {
+        override fun run() {
+            lastLocation?.let { saveAndUpload(it) }
+            handler.postDelayed(this, INTERVAL_MS)
+        }
+    }
+
+    // One-shot location listener to get current fix
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
-            Log.d(TAG, "Location received: ${location.latitude}, ${location.longitude}")
-            val ts = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
-                .apply { timeZone = TimeZone.getTimeZone("UTC") }
-                .format(Date(location.time))
-
-            db.insert(location.latitude, location.longitude, location.altitude, location.accuracy.toDouble(), ts)
-            uploadPending()
+            if (lastLocation == null || location.accuracy < lastLocation!!.accuracy) {
+                lastLocation = location
+            }
         }
-
         override fun onProviderEnabled(provider: String) {}
         override fun onProviderDisabled(provider: String) {}
     }
@@ -55,9 +63,19 @@ class GpsLoggerService : Service() {
         super.onCreate()
         deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         db = GpsDatabase(this)
+        handler = Handler(Looper.getMainLooper())
         createNotificationChannel()
         startForegroundCompat()
         startLocationUpdates()
+        handler.postDelayed(periodicRunnable, INTERVAL_MS)
+    }
+
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_LOG_NOW) {
+            // Triggered manually from UI
+            lastLocation?.let { saveAndUpload(it) }
+        }
+        return START_STICKY
     }
 
     private fun startLocationUpdates() {
@@ -69,32 +87,33 @@ class GpsLoggerService : Service() {
 
         try {
             locationManager.requestLocationUpdates(
-                LocationManager.GPS_PROVIDER,
-                10000L,  // 10 seconds
-                0f,
-                locationListener,
-                Looper.getMainLooper()
+                LocationManager.GPS_PROVIDER, 10000L, 0f, locationListener, Looper.getMainLooper()
             )
             locationManager.requestLocationUpdates(
-                LocationManager.NETWORK_PROVIDER,
-                10000L,
-                0f,
-                locationListener,
-                Looper.getMainLooper()
+                LocationManager.NETWORK_PROVIDER, 10000L, 0f, locationListener, Looper.getMainLooper()
             )
         } catch (e: Exception) {
             Log.e(TAG, "Location update error: ${e.message}")
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        return START_STICKY
+    private fun saveAndUpload(location: Location) {
+        val ts = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+            .apply { timeZone = TimeZone.getTimeZone("UTC") }
+            .format(Date(location.time))
+        db.insert(location.latitude, location.longitude, location.altitude, location.accuracy.toDouble(), ts)
+        Log.d(TAG, "Saved: ${location.latitude}, ${location.longitude}")
+        val intent = Intent("GPS_LOG_SAVED")
+        intent.putExtra("timestamp", System.currentTimeMillis())
+        sendBroadcast(intent)
+        uploadPending()
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         super.onDestroy()
+        handler.removeCallbacks(periodicRunnable)
         locationManager.removeUpdates(locationListener)
         startService(Intent(applicationContext, GpsLoggerService::class.java))
     }
@@ -123,10 +142,7 @@ class GpsLoggerService : Service() {
                         put("ts", row.ts)
                         put("dev", deviceId)
                     }.toString()
-                    client.publish(
-                        MQTT_TOPIC,
-                        MqttMessage(payload.toByteArray()).apply { qos = 1 }
-                    )
+                    client.publish(MQTT_TOPIC, MqttMessage(payload.toByteArray()).apply { qos = 1 })
                     db.markUploaded(row.id)
                 }
                 client.disconnect()
