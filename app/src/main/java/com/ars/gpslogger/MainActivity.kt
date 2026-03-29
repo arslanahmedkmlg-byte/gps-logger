@@ -1,6 +1,7 @@
 package com.ars.gpslogger
 
 import android.Manifest
+import android.app.AlertDialog
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -30,32 +31,36 @@ class MainActivity : AppCompatActivity() {
     private lateinit var toggleBtn: Button
     private lateinit var statusText: TextView
     private lateinit var saveStatus: TextView
-
     private lateinit var logReceiver: BroadcastReceiver
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
+        try {
+            setContentView(R.layout.activity_main)
 
-        toggleBtn = findViewById(R.id.toggleButton)
-        statusText = findViewById(R.id.statusText)
-        saveStatus = findViewById(R.id.saveStatus)
+            toggleBtn = findViewById(R.id.toggleButton)
+            statusText = findViewById(R.id.statusText)
+            saveStatus = findViewById(R.id.saveStatus)
 
-        // Listen for "log saved" broadcasts
-        setupBroadcastReceiver()
+            setupBroadcastReceiver()
 
-        // Toggle button
-        toggleBtn.setOnClickListener {
-            if (isRunning) {
-                stopGpsService()
-            } else {
-                startGpsService()
+            toggleBtn.setOnClickListener {
+                if (isRunning) {
+                    stopGpsService()
+                } else {
+                    startGpsService()
+                }
             }
-        }
 
-        // Ask for permissions
-        if (!hasPermissions()) {
-            ActivityCompat.requestPermissions(this, PERMISSIONS, 1)
+            if (!hasPermissions()) {
+                ActivityCompat.requestPermissions(this, PERMISSIONS, 1)
+            }
+        } catch (e: Exception) {
+            AlertDialog.Builder(this)
+                .setTitle("Crash Error")
+                .setMessage(e.toString())
+                .setPositiveButton("OK", null)
+                .show()
         }
     }
 
@@ -92,16 +97,13 @@ class MainActivity : AppCompatActivity() {
         } else {
             startService(intent)
         }
-
         isRunning = true
         statusText.text = "GPS Logger is ON"
         toggleBtn.text = "Stop Logging"
     }
 
     private fun stopGpsService() {
-        val intent = Intent(this, GpsLoggerService::class.java)
-        stopService(intent)
-
+        stopService(Intent(this, GpsLoggerService::class.java))
         isRunning = false
         statusText.text = "GPS Logger is OFF"
         toggleBtn.text = "Start Logging"
