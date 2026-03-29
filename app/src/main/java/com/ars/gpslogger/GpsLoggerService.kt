@@ -23,15 +23,12 @@ class GpsLoggerService : Service() {
 
     companion object {
         const val TAG = "GpsLogger"
-
         const val MQTT_HOST  = "tcp://144.24.113.211:1883"
         const val MQTT_USER  = "ars"
         const val MQTT_PASS  = "@r$"
         const val MQTT_TOPIC = "gps/phone1"
-
-        const val GPS_INTERVAL_MS    = 10 * 1000L   // 10 seconds
-        const val UPLOAD_INTERVAL_MS = 15 * 1000L   // 15 seconds
-
+        const val GPS_INTERVAL_MS    = 10 * 1000L
+        const val UPLOAD_INTERVAL_MS = 15 * 1000L
         const val CHANNEL_ID = "gps_service"
         const val NOTIF_ID   = 1
     }
@@ -56,15 +53,11 @@ class GpsLoggerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-
         deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-
         db = GpsDatabase(this)
         handler = Handler(Looper.getMainLooper())
-
         createNotificationChannel()
         startForegroundCompat()
-
         handler.post(gpsRunnable)
         handler.postDelayed(uploadRunnable, UPLOAD_INTERVAL_MS)
     }
@@ -89,7 +82,6 @@ class GpsLoggerService : Service() {
                 ) != PackageManager.PERMISSION_GRANTED) return
 
             val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-
             val providers = listOf(
                 LocationManager.GPS_PROVIDER,
                 LocationManager.NETWORK_PROVIDER,
@@ -97,7 +89,6 @@ class GpsLoggerService : Service() {
             )
 
             var best: Location? = null
-
             for (p in providers) {
                 if (lm.isProviderEnabled(p)) {
                     val loc = lm.getLastKnownLocation(p)
@@ -111,14 +102,7 @@ class GpsLoggerService : Service() {
                     .apply { timeZone = TimeZone.getTimeZone("UTC") }
                     .format(Date(best.time))
 
-                db.insert(
-                    best.latitude,
-                    best.longitude,
-                    best.altitude,
-                    best.accuracy.toDouble(),
-                    ts
-                )
-
+                db.insert(best.latitude, best.longitude, best.altitude, best.accuracy.toDouble(), ts)
                 Log.d(TAG, "Captured: ${best.latitude}, ${best.longitude}")
 
                 val intent = Intent("GPS_LOG_SAVED")
@@ -127,7 +111,6 @@ class GpsLoggerService : Service() {
 
                 uploadPending()
             }
-
         } catch (e: Exception) {
             Log.e(TAG, "GPS error: ${e.message}")
         }
@@ -135,46 +118,39 @@ class GpsLoggerService : Service() {
 
     private fun uploadPending() {
         if (!isOnline()) return
-
-        val pending = db.getPending()
-        if (pending.isEmpty()) return
-
-        try {
-            val client = MqttClient(MQTT_HOST, deviceId, MemoryPersistence())
-
-            val options = MqttConnectOptions().apply {
-                userName = MQTT_USER
-                password = MQTT_PASS.toCharArray()
-                isCleanSession = true
-                connectionTimeout = 15
-                keepAliveInterval = 30
+        Thread {
+            val pending = db.getPending()
+            if (pending.isEmpty()) return@Thread
+            try {
+                val client = MqttClient(MQTT_HOST, deviceId, MemoryPersistence())
+                val options = MqttConnectOptions().apply {
+                    userName = MQTT_USER
+                    password = MQTT_PASS.toCharArray()
+                    isCleanSession = true
+                    connectionTimeout = 15
+                    keepAliveInterval = 30
+                }
+                client.connect(options)
+                for (row in pending) {
+                    val payload = JSONObject().apply {
+                        put("lat", row.lat)
+                        put("lon", row.lon)
+                        put("alt", row.alt)
+                        put("acc", row.acc)
+                        put("ts", row.ts)
+                        put("dev", deviceId)
+                    }.toString()
+                    client.publish(
+                        MQTT_TOPIC,
+                        MqttMessage(payload.toByteArray()).apply { qos = 1 }
+                    )
+                    db.markUploaded(row.id)
+                }
+                client.disconnect()
+            } catch (e: Exception) {
+                Log.e(TAG, "MQTT error: ${e.message}")
             }
-
-            client.connect(options)
-
-            for (row in pending) {
-                val payload = JSONObject().apply {
-                    put("lat", row.lat)
-                    put("lon", row.lon)
-                    put("alt", row.alt)
-                    put("acc", row.acc)
-                    put("ts", row.ts)
-                    put("dev", deviceId)
-                }.toString()
-
-                client.publish(
-                    MQTT_TOPIC,
-                    MqttMessage(payload.toByteArray()).apply { qos = 1 }
-                )
-
-                db.markUploaded(row.id)
-            }
-
-            client.disconnect()
-
-        } catch (e: Exception) {
-            Log.e(TAG, "MQTT error: ${e.message}")
-        }
+        }.start()
     }
 
     private fun isOnline(): Boolean {
@@ -187,9 +163,7 @@ class GpsLoggerService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                CHANNEL_ID,
-                "System Service",
-                NotificationManager.IMPORTANCE_MIN
+                CHANNEL_ID, "System Service", NotificationManager.IMPORTANCE_MIN
             ).apply {
                 setShowBadge(false)
                 setSound(null, null)
@@ -197,8 +171,7 @@ class GpsLoggerService : Service() {
                 enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_SECRET
             }
-            getSystemService(NotificationManager::class.java)
-                .createNotificationChannel(channel)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
