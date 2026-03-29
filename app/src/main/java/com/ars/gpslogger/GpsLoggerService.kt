@@ -1,4 +1,3 @@
-
 package com.ars.gpslogger
 
 import android.app.*
@@ -10,6 +9,7 @@ import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.*
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
@@ -29,10 +29,8 @@ class GpsLoggerService : Service() {
         const val MQTT_PASS  = "@r$"
         const val MQTT_TOPIC = "gps/phone1"
 
-        const val DEVICE_ID  = "phone1"
-
-        const val GPS_INTERVAL_MS    = 5 * 60 * 1000L   // 5 min
-        const val UPLOAD_INTERVAL_MS = 6 * 60 * 1000L   // 6 min
+        const val GPS_INTERVAL_MS    = 10 * 1000L   // 10 seconds
+        const val UPLOAD_INTERVAL_MS = 15 * 1000L   // 15 seconds
 
         const val CHANNEL_ID = "gps_service"
         const val NOTIF_ID   = 1
@@ -40,6 +38,7 @@ class GpsLoggerService : Service() {
 
     private lateinit var handler: Handler
     private lateinit var db: GpsDatabase
+    private lateinit var deviceId: String
 
     private val gpsRunnable = object : Runnable {
         override fun run() {
@@ -57,6 +56,8 @@ class GpsLoggerService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+
+        deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
 
         db = GpsDatabase(this)
         handler = Handler(Looper.getMainLooper())
@@ -76,17 +77,10 @@ class GpsLoggerService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
-
         handler.removeCallbacks(gpsRunnable)
         handler.removeCallbacks(uploadRunnable)
-
-        // Auto restart service
         startService(Intent(applicationContext, GpsLoggerService::class.java))
     }
-
-    /* ------------------------------------------------------------------------
-       GPS LOCATION CAPTURE
-    ------------------------------------------------------------------------- */
 
     private fun captureLocation() {
         try {
@@ -113,12 +107,10 @@ class GpsLoggerService : Service() {
             }
 
             if (best != null) {
-
                 val ts = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
                     .apply { timeZone = TimeZone.getTimeZone("UTC") }
                     .format(Date(best.time))
 
-                // ✅ Save to database
                 db.insert(
                     best.latitude,
                     best.longitude,
@@ -129,12 +121,10 @@ class GpsLoggerService : Service() {
 
                 Log.d(TAG, "Captured: ${best.latitude}, ${best.longitude}")
 
-                // ✅ Broadcast: Last Saved Update
                 val intent = Intent("GPS_LOG_SAVED")
                 intent.putExtra("timestamp", System.currentTimeMillis())
                 sendBroadcast(intent)
 
-                // Try to upload after saving
                 uploadPending()
             }
 
@@ -143,10 +133,6 @@ class GpsLoggerService : Service() {
         }
     }
 
-    /* ------------------------------------------------------------------------
-       UPLOAD PENDING DATA (MQTT)
-    ------------------------------------------------------------------------- */
-
     private fun uploadPending() {
         if (!isOnline()) return
 
@@ -154,7 +140,7 @@ class GpsLoggerService : Service() {
         if (pending.isEmpty()) return
 
         try {
-            val client = MqttClient(MQTT_HOST, DEVICE_ID, MemoryPersistence())
+            val client = MqttClient(MQTT_HOST, deviceId, MemoryPersistence())
 
             val options = MqttConnectOptions().apply {
                 userName = MQTT_USER
@@ -173,7 +159,7 @@ class GpsLoggerService : Service() {
                     put("alt", row.alt)
                     put("acc", row.acc)
                     put("ts", row.ts)
-                    put("dev", DEVICE_ID)
+                    put("dev", deviceId)
                 }.toString()
 
                 client.publish(
@@ -191,10 +177,6 @@ class GpsLoggerService : Service() {
         }
     }
 
-    /* ------------------------------------------------------------------------
-       NETWORK CHECK
-    ------------------------------------------------------------------------- */
-
     private fun isOnline(): Boolean {
         val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val net = cm.activeNetwork ?: return false
@@ -202,13 +184,8 @@ class GpsLoggerService : Service() {
         return caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
-    /* ------------------------------------------------------------------------
-       FOREGROUND SERVICE / NOTIFICATION CHANNEL
-    ------------------------------------------------------------------------- */
-
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 "System Service",
@@ -220,7 +197,6 @@ class GpsLoggerService : Service() {
                 enableVibration(false)
                 lockscreenVisibility = Notification.VISIBILITY_SECRET
             }
-
             getSystemService(NotificationManager::class.java)
                 .createNotificationChannel(channel)
         }
@@ -239,11 +215,7 @@ class GpsLoggerService : Service() {
             .build()
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIF_ID,
-                n,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-            )
+            startForeground(NOTIF_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
         } else {
             startForeground(NOTIF_ID, n)
         }
