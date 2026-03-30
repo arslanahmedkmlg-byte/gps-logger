@@ -1,32 +1,48 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical"
-    android:gravity="center"
-    android:padding="24dp"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="#0D0320">
 
+    <!-- Status label top -->
     <TextView
         android:id="@+id/statusText"
-        android:text="GPS Logger is OFF"
-        android:textSize="20sp"
-        android:padding="16dp"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"/>
+        android:layout_height="wrap_content"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="80dp"
+        android:text="INACTIVE"
+        android:textColor="#7B5EA7"
+        android:textSize="13sp"
+        android:letterSpacing="0.3"
+        android:fontFamily="monospace" />
 
+    <!-- Big neon button centered -->
     <Button
         android:id="@+id/toggleButton"
-        android:text="Start Logging"
-        android:padding="16dp"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content" />
+        android:layout_width="220dp"
+        android:layout_height="220dp"
+        android:layout_centerInParent="true"
+        android:background="@drawable/btn_neon_green"
+        android:text="START"
+        android:textColor="#FFFFFF"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:letterSpacing="0.2"
+        android:elevation="12dp"
+        android:stateListAnimator="@null" />
 
+    <!-- Last ping bottom -->
     <TextView
         android:id="@+id/saveStatus"
-        android:text="No logs yet"
-        android:textSize="16sp"
-        android:padding="12dp"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content"
+        android:layout_centerHorizontal="true"
+        android:layout_alignParentBottom="true"
+        android:layout_marginBottom="60dp"
+        android:text=""
+        android:textColor="#4A3570"
+        android:textSize="11sp"
+        android:fontFamily="monospace" />
 
-</LinearLayout>
+</RelativeLayout>

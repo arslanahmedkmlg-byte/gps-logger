@@ -1,6 +1,7 @@
 package com.ars.gpslogger
 
 import android.Manifest
+import android.app.ActivityManager
 import android.app.AlertDialog
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -14,19 +15,12 @@ import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.text.SimpleDateFormat
+import java.util.*
 
 class MainActivity : AppCompatActivity() {
 
-    private val PERMISSIONS = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        arrayOf(
-            Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_BACKGROUND_LOCATION
-        )
-    } else {
-        arrayOf(Manifest.permission.ACCESS_FINE_LOCATION)
-    }
-
-    private var isRunning = false
+    private val PERM_REQUEST = 1
 
     private lateinit var toggleBtn: Button
     private lateinit var statusText: TextView
@@ -38,85 +32,111 @@ class MainActivity : AppCompatActivity() {
         try {
             setContentView(R.layout.activity_main)
 
-            toggleBtn = findViewById(R.id.toggleButton)
+            toggleBtn  = findViewById(R.id.toggleButton)
             statusText = findViewById(R.id.statusText)
             saveStatus = findViewById(R.id.saveStatus)
 
             setupBroadcastReceiver()
+            updateUI()
+            requestAllPermissions()
 
             toggleBtn.setOnClickListener {
-                if (isRunning) {
+                if (isServiceRunning()) {
                     stopGpsService()
                 } else {
                     startGpsService()
+                    finishAndRemoveTask()
                 }
             }
 
-            if (!hasPermissions()) {
-                ActivityCompat.requestPermissions(this, PERMISSIONS, 1)
-            }
         } catch (e: Exception) {
             AlertDialog.Builder(this)
-                .setTitle("Crash Error")
+                .setTitle("Error")
                 .setMessage(e.toString())
                 .setPositiveButton("OK", null)
                 .show()
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        updateUI()
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        try { unregisterReceiver(logReceiver) } catch (e: Exception) {}
+    }
+
+    private fun updateUI() {
+        if (isServiceRunning()) {
+            statusText.text = "ACTIVE"
+            toggleBtn.text = "STOP"
+            toggleBtn.setBackgroundResource(R.drawable.btn_neon_red)
+        } else {
+            statusText.text = "INACTIVE"
+            toggleBtn.text = "START"
+            toggleBtn.setBackgroundResource(R.drawable.btn_neon_green)
+        }
+    }
+
     private fun setupBroadcastReceiver() {
         logReceiver = object : BroadcastReceiver() {
             override fun onReceive(context: Context?, intent: Intent?) {
-                val timestamp = intent?.getLongExtra("timestamp", 0L) ?: 0L
-                saveStatus.text = "Last saved: ${java.util.Date(timestamp)}"
+                val ts = intent?.getLongExtra("timestamp", 0L) ?: 0L
+                if (ts > 0) {
+                    saveStatus.text = "last ping  ${SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(ts))}"
+                }
             }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(logReceiver, IntentFilter("GPS_LOG_SAVED"), RECEIVER_NOT_EXPORTED)
         } else {
+            @Suppress("UnspecifiedRegisterReceiverFlag")
             registerReceiver(logReceiver, IntentFilter("GPS_LOG_SAVED"))
         }
     }
 
-    override fun onDestroy() {
-        super.onDestroy()
-        unregisterReceiver(logReceiver)
+    private fun isServiceRunning(): Boolean {
+        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        @Suppress("DEPRECATION")
+        return am.getRunningServices(Int.MAX_VALUE)
+            .any { it.service.className == GpsLoggerService::class.java.name }
     }
 
-    private fun hasPermissions(): Boolean =
-        PERMISSIONS.all {
-            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+    private fun requestAllPermissions() {
+        val perms = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            perms.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         }
-
-    override fun onRequestPermissionsResult(
-        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
-    ) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            perms.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        val missing = perms.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), PERM_REQUEST)
+        }
     }
 
     private fun startGpsService() {
-        // Start service
-        val startIntent = Intent(this, GpsLoggerService::class.java)
+        val intent = Intent(this, GpsLoggerService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(startIntent)
+            startForegroundService(intent)
         } else {
-            startService(startIntent)
+            startService(intent)
         }
-
-        // Trigger immediate log
         val logIntent = Intent(this, GpsLoggerService::class.java)
         logIntent.action = GpsLoggerService.ACTION_LOG_NOW
         startService(logIntent)
-
-        isRunning = true
-        statusText.text = "GPS Logger is ON"
-        toggleBtn.text = "Stop Logging"
     }
 
     private fun stopGpsService() {
         stopService(Intent(this, GpsLoggerService::class.java))
-        isRunning = false
-        statusText.text = "GPS Logger is OFF"
-        toggleBtn.text = "Start Logging"
+        updateUI()
     }
 }
