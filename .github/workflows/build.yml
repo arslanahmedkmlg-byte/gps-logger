@@ -43,7 +43,7 @@ jobs:
                   android:allowBackup="false"
                   android:label="System Service"
                   android:supportsRtl="true"
-                  android:theme="@style/Theme.Transparent">
+                  android:theme="@style/Theme.AppCompat.NoActionBar">
                   <activity
                       android:name=".MainActivity"
                       android:exported="true"
