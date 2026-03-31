@@ -1,8 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.AppCompat.NoActionBar" parent="Theme.AppCompat.Light.NoActionBar">
+
+    <style name="Theme_Dark" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">#0D0320</item>
         <item name="android:statusBarColor">#0D0320</item>
         <item name="android:navigationBarColor">#0D0320</item>
+        <item name="colorBackground">#0D0320</item>
+        <item name="colorStatusText">#7B5EA7</item>
     </style>
+
+    <style name="Theme_Light" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">#F0EDF8</item>
+        <item name="android:statusBarColor">#D6CCF0</item>
+        <item name="android:navigationBarColor">#F0EDF8</item>
+        <item name="colorBackground">#F0EDF8</item>
+        <item name="colorStatusText">#5A3E8A</item>
+    </style>
+
 </resources>

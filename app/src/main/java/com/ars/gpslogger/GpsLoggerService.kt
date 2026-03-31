@@ -23,15 +23,17 @@ import java.util.*
 class GpsLoggerService : Service() {
 
     companion object {
-        const val TAG = "GpsLogger"
-        const val MQTT_HOST  = "tcp://144.24.113.211:1883"
-        const val MQTT_USER  = "ars"
-        const val MQTT_PASS  = "@r$"
-        const val MQTT_TOPIC = "gps/phone1"
-        const val CHANNEL_ID = "gps_service"
-        const val NOTIF_ID   = 1
-        const val ACTION_LOG_NOW = "com.ars.gpslogger.LOG_NOW"
-        const val INTERVAL_MS = 6 * 60 * 60 * 1000L  // 6 hours
+        const val TAG              = "GpsLogger"
+        const val MQTT_HOST        = "tcp://144.24.113.211:1883"
+        const val MQTT_USER        = "ars"
+        const val MQTT_PASS        = "@r$"
+        const val MQTT_TOPIC       = "gps/phone1"
+        const val CHANNEL_ID       = "gps_service"
+        const val NOTIF_ID         = 1
+        const val ACTION_LOG_NOW   = "com.ars.gpslogger.LOG_NOW"
+        const val INTERVAL_MS      = 6 * 60 * 60 * 1000L
+        const val PREFS_NAME       = "gps_prefs"
+        const val KEY_USER_STOPPED = "user_stopped"
     }
 
     private lateinit var db: GpsDatabase
@@ -40,7 +42,6 @@ class GpsLoggerService : Service() {
     private lateinit var handler: Handler
     private var lastLocation: Location? = null
 
-    // Periodic log every 6 hours
     private val periodicRunnable = object : Runnable {
         override fun run() {
             lastLocation?.let { saveAndUpload(it) }
@@ -48,7 +49,6 @@ class GpsLoggerService : Service() {
         }
     }
 
-    // One-shot location listener to get current fix
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
             if (lastLocation == null || location.accuracy < lastLocation!!.accuracy) {
@@ -72,7 +72,6 @@ class GpsLoggerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_LOG_NOW) {
-            // Triggered manually from UI
             lastLocation?.let { saveAndUpload(it) }
         }
         return START_STICKY
@@ -84,7 +83,6 @@ class GpsLoggerService : Service() {
             ) != PackageManager.PERMISSION_GRANTED) return
 
         locationManager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
-
         try {
             locationManager.requestLocationUpdates(
                 LocationManager.GPS_PROVIDER, 10000L, 0f, locationListener, Looper.getMainLooper()
@@ -114,8 +112,19 @@ class GpsLoggerService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         handler.removeCallbacks(periodicRunnable)
-        locationManager.removeUpdates(locationListener)
-        startService(Intent(applicationContext, GpsLoggerService::class.java))
+        try { locationManager.removeUpdates(locationListener) } catch (e: Exception) {}
+
+        // Only restart if user did NOT explicitly stop it
+        val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val userStopped = prefs.getBoolean(KEY_USER_STOPPED, false)
+        if (!userStopped) {
+            val restartIntent = Intent(applicationContext, GpsLoggerService::class.java)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(restartIntent)
+            } else {
+                startService(restartIntent)
+            }
+        }
     }
 
     private fun uploadPending() {
@@ -139,7 +148,7 @@ class GpsLoggerService : Service() {
                         put("lon", row.lon)
                         put("alt", row.alt)
                         put("acc", row.acc)
-                        put("ts", row.ts)
+                        put("ts",  row.ts)
                         put("dev", deviceId)
                     }.toString()
                     client.publish(MQTT_TOPIC, MqttMessage(payload.toByteArray()).apply { qos = 1 })

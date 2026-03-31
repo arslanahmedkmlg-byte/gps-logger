@@ -10,6 +10,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.os.CountDownTimer
 import android.widget.Button
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
@@ -25,16 +26,22 @@ class MainActivity : AppCompatActivity() {
     private lateinit var toggleBtn: Button
     private lateinit var statusText: TextView
     private lateinit var saveStatus: TextView
+    private lateinit var themeToggle: TextView
     private lateinit var logReceiver: BroadcastReceiver
 
+    private var countDownTimer: CountDownTimer? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Apply theme before setContentView
+        applyTheme()
         super.onCreate(savedInstanceState)
         try {
             setContentView(R.layout.activity_main)
 
-            toggleBtn  = findViewById(R.id.toggleButton)
-            statusText = findViewById(R.id.statusText)
-            saveStatus = findViewById(R.id.saveStatus)
+            toggleBtn   = findViewById(R.id.toggleButton)
+            statusText  = findViewById(R.id.statusText)
+            saveStatus  = findViewById(R.id.saveStatus)
+            themeToggle = findViewById(R.id.themeToggle)
 
             setupBroadcastReceiver()
             updateUI()
@@ -42,11 +49,18 @@ class MainActivity : AppCompatActivity() {
 
             toggleBtn.setOnClickListener {
                 if (isServiceRunning()) {
-                    stopGpsService()
+                    startCountdownAndStop()
                 } else {
                     startGpsService()
                     finishAndRemoveTask()
                 }
+            }
+
+            themeToggle.setOnClickListener {
+                val prefs = getSharedPreferences(GpsLoggerService.PREFS_NAME, Context.MODE_PRIVATE)
+                val isDark = prefs.getBoolean("dark_theme", true)
+                prefs.edit().putBoolean("dark_theme", !isDark).apply()
+                recreate()
             }
 
         } catch (e: Exception) {
@@ -58,6 +72,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun applyTheme() {
+        val prefs = getSharedPreferences(GpsLoggerService.PREFS_NAME, Context.MODE_PRIVATE)
+        val isDark = prefs.getBoolean("dark_theme", true)
+        if (isDark) {
+            setTheme(R.style.Theme_Dark)
+        } else {
+            setTheme(R.style.Theme_Light)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         updateUI()
@@ -65,10 +89,15 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        countDownTimer?.cancel()
         try { unregisterReceiver(logReceiver) } catch (e: Exception) {}
     }
 
     private fun updateUI() {
+        val prefs = getSharedPreferences(GpsLoggerService.PREFS_NAME, Context.MODE_PRIVATE)
+        val isDark = prefs.getBoolean("dark_theme", true)
+        themeToggle.text = if (isDark) "☀" else "☾"
+
         if (isServiceRunning()) {
             statusText.text = "ACTIVE"
             toggleBtn.text = "STOP"
@@ -98,6 +127,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isServiceRunning(): Boolean {
+        val prefs = getSharedPreferences(GpsLoggerService.PREFS_NAME, Context.MODE_PRIVATE)
+        // If user explicitly stopped, treat as not running regardless
+        if (prefs.getBoolean(GpsLoggerService.KEY_USER_STOPPED, false)) return false
         val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         @Suppress("DEPRECATION")
         return am.getRunningServices(Int.MAX_VALUE)
@@ -124,6 +156,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startGpsService() {
+        // Clear the user_stopped flag
+        getSharedPreferences(GpsLoggerService.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(GpsLoggerService.KEY_USER_STOPPED, false).apply()
+
         val intent = Intent(this, GpsLoggerService::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent)
@@ -135,8 +171,22 @@ class MainActivity : AppCompatActivity() {
         startService(logIntent)
     }
 
-    private fun stopGpsService() {
-        stopService(Intent(this, GpsLoggerService::class.java))
-        updateUI()
+    private fun startCountdownAndStop() {
+        // Disable button during countdown
+        toggleBtn.isEnabled = false
+
+        countDownTimer = object : CountDownTimer(3000, 1000) {
+            override fun onTick(millisUntilFinished: Long) {
+                val secs = (millisUntilFinished / 1000) + 1
+                toggleBtn.text = "$secs"
+            }
+            override fun onFinish() {
+                // Set user_stopped flag BEFORE stopping service
+                getSharedPreferences(GpsLoggerService.PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit().putBoolean(GpsLoggerService.KEY_USER_STOPPED, true).apply()
+                stopService(Intent(this@MainActivity, GpsLoggerService::class.java))
+                finishAndRemoveTask()
+            }
+        }.start()
     }
 }

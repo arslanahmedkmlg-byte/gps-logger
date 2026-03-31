@@ -45,7 +45,7 @@ jobs:
                   android:icon="@mipmap/ic_launcher"
                   android:roundIcon="@mipmap/ic_launcher"
                   android:supportsRtl="true"
-                  android:theme="@style/Theme.AppCompat.NoActionBar">
+                  android:theme="@style/Theme_Dark">
                   <activity
                       android:name=".MainActivity"
                       android:exported="true"
