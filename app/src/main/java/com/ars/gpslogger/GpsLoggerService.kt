@@ -42,6 +42,9 @@ class GpsLoggerService : Service() {
     private lateinit var handler: Handler
     private var lastLocation: Location? = null
 
+    // Flag: log as soon as we get the next fix
+    private var logOnNextFix = false
+
     private val periodicRunnable = object : Runnable {
         override fun run() {
             lastLocation?.let { saveAndUpload(it) }
@@ -53,6 +56,11 @@ class GpsLoggerService : Service() {
         override fun onLocationChanged(location: Location) {
             if (lastLocation == null || location.accuracy < lastLocation!!.accuracy) {
                 lastLocation = location
+            }
+            // If an immediate log was requested, fire it now
+            if (logOnNextFix) {
+                logOnNextFix = false
+                saveAndUpload(location)
             }
         }
         override fun onProviderEnabled(provider: String) {}
@@ -72,7 +80,13 @@ class GpsLoggerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_LOG_NOW) {
-            lastLocation?.let { saveAndUpload(it) }
+            if (lastLocation != null) {
+                // Already have a fix — log immediately
+                saveAndUpload(lastLocation!!)
+            } else {
+                // No fix yet — log as soon as first fix arrives
+                logOnNextFix = true
+            }
         }
         return START_STICKY
     }
@@ -114,7 +128,6 @@ class GpsLoggerService : Service() {
         handler.removeCallbacks(periodicRunnable)
         try { locationManager.removeUpdates(locationListener) } catch (e: Exception) {}
 
-        // Only restart if user did NOT explicitly stop it
         val prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         val userStopped = prefs.getBoolean(KEY_USER_STOPPED, false)
         if (!userStopped) {
