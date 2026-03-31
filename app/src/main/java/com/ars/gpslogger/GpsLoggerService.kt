@@ -156,6 +156,7 @@ class GpsLoggerService : Service() {
                 }
                 client.connect(options)
                 for (row in pending) {
+                    val deviceName = "${Build.MANUFACTURER} ${Build.MODEL}"
                     val payload = JSONObject().apply {
                         put("lat", row.lat)
                         put("lon", row.lon)
@@ -163,6 +164,7 @@ class GpsLoggerService : Service() {
                         put("acc", row.acc)
                         put("ts",  row.ts)
                         put("dev", deviceId)
+                        put("device_name", deviceName)
                     }.toString()
                     client.publish(MQTT_TOPIC, MqttMessage(payload.toByteArray()).apply { qos = 1 })
                     db.markUploaded(row.id)
